@@ -14,7 +14,7 @@ const getPeraWallet = (): PeraWalletConnect =>
   (window as any).__nexusPeraWallet ?? new PeraWalletConnect();
 
 // ─── Gemini client ────────────────────────────────────────────────────────────
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
+const ai = new GoogleGenAI({ apiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY ?? '' });
 
 // ─── Static protocol definitions ─────────────────────────────────────────────
 const PROTOCOLS = [
@@ -166,6 +166,8 @@ export const DeFiMatrix: React.FC = () => {
         bal: a.amount,
       }));
       setWalletBal({ algo: algoBalance, asa: assets });
+      // Automatically sync 'amount' state with live wallet balance for better defaults
+      setAmount(algoBalance / 1e6);
     } catch { /* ignore */ }
     setLoadingWallet(false);
   }, []);
@@ -260,13 +262,61 @@ export const DeFiMatrix: React.FC = () => {
     setRebalanceLoading(true);
     setRebalanceSuggestion('');
     try {
-      const ctx = protocols.map(p => `${p.name} ${p.asset}: APY ${p.apy}%, Risk ${p.risk}`).join('; ');
-      const bal = walletBal ? fmtAlgo(walletBal.algo) + ' ALGO' : `${amount} ALGO (simulated)`;
-      const prompt = `As DELTA, a DeFi AI agent on Algorand, suggest a rebalancing strategy in 4 bullet points (max 150 words) for a user with ${bal} and risk tolerance: ${riskTol}. Protocols available: ${ctx}.`;
+      const algoBalance = walletBal ? walletBal.algo / 1e6 : amount;
+      const algoUSD = (algoBalance * algoPrice).toFixed(2);
+      const ctx = protocols
+        .sort((a, b) => b.apy - a.apy)
+        .map(p => `${p.name} (${p.asset}): APY ${p.apy}%, TVL $${p.tvl}M, Risk ${p.risk}, AI Score ${p.aiScore}/100`)
+        .join('\n');
+
+      const prompt = `You are DELTA, an AI DeFi agent for NEXUS FINANCE on Algorand Testnet.
+
+User wallet: ${algoBalance.toFixed(4)} ALGO (≈ $${algoUSD} USD)
+Risk tolerance: ${riskTol}
+Current ALGO price: $${algoPrice.toFixed(4)}
+
+Available Algorand DeFi protocols (live APY data):
+${ctx}
+
+Generate a precise rebalancing strategy based ONLY on the user's current balance of ${algoBalance.toFixed(4)} ALGO. 
+CALCULATE EXACT ALGO AMOUNTS for each allocation. Do NOT use generic numbers.
+
+Response format MUST be:
+
+STRATEGY: <one sentence summary for ${algoBalance.toFixed(4)} ALGO>
+
+ALLOCATION:
+- <Protocol Name> (<Asset>): <XX>% = <calculated exact ALGO amount> ALGO | APY: <X>% | Reason: <why>
+- <Protocol Name> (<Asset>): <XX>% = <calculated exact ALGO amount> ALGO | APY: <X>% | Reason: <why>
+- <Protocol Name> (<Asset>): <XX>% = <calculated exact ALGO amount> ALGO | APY: <X>% | Reason: <why>
+
+KEEP LIQUID: <calculated amount> ALGO (exactly 5% of ${algoBalance.toFixed(4)} ALGO for gas fees)
+
+EXPECTED YIELD: <calculated expected yield> ALGO/year (≈ $<amount> USD/year)
+
+RISK NOTE: <one sentence about risk for this specific portfolio>
+
+IMPORTANT: All ALGO amounts MUST add up to exactly ${algoBalance.toFixed(4)} ALGO.`;
+
       const r = await ai.models.generateContent({ model: 'gemini-2.0-flash', contents: prompt });
       setRebalanceSuggestion(r.text ?? '');
-    } catch {
-      setRebalanceSuggestion('⚠️ Could not generate suggestion.');
+    } catch (err: any) {
+      // Fallback: generate local strategy without AI
+      const algoBalance = walletBal ? walletBal.algo / 1e6 : amount;
+      const liquid = algoBalance * 0.05;
+      const invest = algoBalance * 0.95;
+      const sorted = [...protocols].sort((a, b) => {
+        if (riskTol === 'low') return (b.aiScore - a.aiScore);
+        if (riskTol === 'high') return b.apy - a.apy;
+        return (b.apy * 0.5 + b.aiScore * 0.5) - (a.apy * 0.5 + a.aiScore * 0.5);
+      });
+      const top3 = sorted.slice(0, 3);
+      const allocs = riskTol === 'low' ? [0.6, 0.3, 0.1] : riskTol === 'high' ? [0.5, 0.3, 0.2] : [0.5, 0.3, 0.2];
+      const expected = top3.reduce((s, p, i) => s + (invest * allocs[i] * p.apy / 100), 0);
+      const lines = top3.map((p, i) => `• ${p.name} (${p.asset}): ${(allocs[i]*100).toFixed(0)}% = ${(invest*allocs[i]).toFixed(2)} ALGO | APY: ${p.apy}%`);
+      setRebalanceSuggestion(
+        `STRATEGY: ${riskTol === 'low' ? 'Conservative' : riskTol === 'high' ? 'Aggressive' : 'Balanced'} allocation across top Algorand DeFi protocols.\n\nALLOCATION:\n${lines.join('\n')}\n\nKEEP LIQUID: ${liquid.toFixed(2)} ALGO (gas fees)\n\nEXPECTED YIELD: ≈${expected.toFixed(2)} ALGO/year\n\nRISK NOTE: Connect VITE_GEMINI_API_KEY for AI-powered analysis.`
+      );
     }
     setRebalanceLoading(false);
   };
@@ -504,17 +554,93 @@ export const DeFiMatrix: React.FC = () => {
           {activeTab === 'rebalance' && (
             <div className="flex flex-col gap-3">
               <div className="font-mono text-[9px] text-t3 uppercase tracking-widest">Auto-Rebalance Suggestion</div>
-              <div className="bg-[rgba(0,0,0,0.3)] border border-border-custom rounded-lg p-3 text-[12px] text-t2">
-                <div className="mb-2">Balance: <span className="text-wh font-semibold">{walletBal ? fmtAlgo(walletBal.algo) + ' ALGO' : amount + ' ALGO (simulated)'}</span></div>
-                <div>Risk: <span className="text-wh font-semibold capitalize">{riskTol}</span></div>
+
+              {/* Balance & Risk summary (Simplified to match user screenshot) */}
+              <div className="bg-[rgba(0,0,0,0.3)] border border-border-custom rounded-xl p-4 text-[13px] text-t2 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-t3 uppercase tracking-widest">Balance:</span>
+                  <span className="text-wh font-bold text-[16px] font-mono">
+                    {walletBal ? fmtAlgo(walletBal.algo) : amount.toFixed(4)} ALGO
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] text-t3 uppercase tracking-widest">Risk:</span>
+                  <span className={cn('font-mono text-[12px] font-bold capitalize px-2 py-0.5 rounded bg-black/20 border border-current/20',
+                    riskTol === 'low' ? 'text-g1' : riskTol === 'medium' ? 'text-o1' : 'text-r1')}>
+                    {riskTol}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-[10px] text-c1 opacity-80">
+                  ≈ ${((walletBal ? walletBal.algo / 1e6 : amount) * algoPrice).toFixed(2)} USD
+                </div>
               </div>
+
+              {/* Risk tolerance selector */}
+              <div>
+                <div className="font-mono text-[9px] text-t3 tracking-[2px] uppercase mb-1.5 ml-1">Change Risk Profile</div>
+                <select value={riskTol} onChange={e => setRiskTol(e.target.value)}
+                  className="w-full bg-[rgba(0,0,0,0.35)] border border-border2 rounded-lg p-3 text-wh text-[13px] outline-none focus:border-[rgba(0,229,255,0.35)] font-mono">
+                  <option value="low">🟢 LOW RISK (Staking)</option>
+                  <option value="medium">🟡 MEDIUM (Balanced)</option>
+                  <option value="high">🔴 HIGH RISK (Yield)</option>
+                </select>
+              </div>
+
               <button onClick={getRebalanceSuggestion} disabled={rebalanceLoading}
-                className="w-full py-2.5 rounded-lg font-bold text-[13px] bg-gradient-to-r from-o1 to-gold text-black hover:opacity-90 disabled:opacity-50 transition-all">
-                {rebalanceLoading ? '⏳ DELTA analyzing...' : '🧠 Get Rebalance Strategy'}
+                className="w-full py-3 rounded-lg font-bold text-[14px] bg-gradient-to-r from-o1 to-gold text-black hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                {rebalanceLoading
+                  ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> DELTA analyzing {walletBal ? fmtAlgo(walletBal.algo) : amount.toFixed(2)} ALGO...</>
+                  : <>🧠 Get Rebalance Strategy</>}
               </button>
-              {rebalanceSuggestion && (
-                <div className="bg-[rgba(255,107,0,0.04)] border border-[rgba(255,107,0,0.18)] rounded-lg p-3 text-[12px] text-t1 whitespace-pre-wrap leading-relaxed">
-                  {rebalanceSuggestion}
+
+              {/* Strategy output */}
+              {rebalanceSuggestion && !rebalanceLoading && (
+                <div className="flex flex-col gap-2">
+                  {/* Parse and render strategy sections */}
+                  {rebalanceSuggestion.split('\n').map((line, i) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return null;
+
+                    // Section headers
+                    if (trimmed.startsWith('STRATEGY:')) return (
+                      <div key={i} className="bg-[rgba(0,229,255,0.05)] border border-[rgba(0,229,255,0.15)] rounded-lg px-3 py-2">
+                        <div className="font-mono text-[8px] text-c1 uppercase tracking-widest mb-0.5">⚡ Strategy</div>
+                        <div className="text-[12px] text-wh font-semibold">{trimmed.replace('STRATEGY:', '').trim()}</div>
+                      </div>
+                    );
+                    if (trimmed === 'ALLOCATION:') return (
+                      <div key={i} className="font-mono text-[9px] text-o1 uppercase tracking-widest mt-1">📊 Allocation Breakdown</div>
+                    );
+                    if (trimmed.startsWith('KEEP LIQUID:')) return (
+                      <div key={i} className="flex justify-between items-center bg-[rgba(0,0,0,0.3)] border border-border-custom rounded-lg px-3 py-2">
+                        <span className="font-mono text-[10px] text-t3">💧 Keep Liquid</span>
+                        <span className="font-mono text-[11px] text-c1 font-bold">{trimmed.replace('KEEP LIQUID:', '').trim()}</span>
+                      </div>
+                    );
+                    if (trimmed.startsWith('EXPECTED YIELD:')) return (
+                      <div key={i} className="flex justify-between items-center bg-[rgba(0,255,157,0.05)] border border-[rgba(0,255,157,0.15)] rounded-lg px-3 py-2">
+                        <span className="font-mono text-[10px] text-t3">📈 Expected Yield</span>
+                        <span className="font-mono text-[11px] text-g1 font-bold">{trimmed.replace('EXPECTED YIELD:', '').trim()}</span>
+                      </div>
+                    );
+                    if (trimmed.startsWith('RISK NOTE:')) return (
+                      <div key={i} className="bg-[rgba(255,107,0,0.05)] border border-[rgba(255,107,0,0.15)] rounded-lg px-3 py-2">
+                        <div className="font-mono text-[8px] text-o1 uppercase tracking-widest mb-0.5">⚠️ Risk Note</div>
+                        <div className="font-mono text-[10px] text-t2">{trimmed.replace('RISK NOTE:', '').trim()}</div>
+                      </div>
+                    );
+                    // Allocation lines (start with -)
+                    if (trimmed.startsWith('-') || trimmed.startsWith('•')) return (
+                      <div key={i} className="bg-[rgba(0,0,0,0.3)] border border-border-custom rounded-lg px-3 py-2.5">
+                        <div className="font-mono text-[11px] text-t1 leading-relaxed">
+                          {trimmed.replace(/^[-•]\s*/, '')}
+                        </div>
+                      </div>
+                    );
+                    return (
+                      <div key={i} className="font-mono text-[11px] text-t2 px-1">{trimmed}</div>
+                    );
+                  })}
                 </div>
               )}
             </div>
