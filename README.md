@@ -7,12 +7,13 @@
 ![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=for-the-badge&logo=typescript)
 ![Supabase](https://img.shields.io/badge/Supabase-Realtime-3ecf8e?style=for-the-badge&logo=supabase)
+![Vercel](https://img.shields.io/badge/Deployed-Vercel-000000?style=for-the-badge&logo=vercel)
 ![License](https://img.shields.io/badge/License-MIT-a855f7?style=for-the-badge)
 
 **An AI agent-powered financial operating system built on the Algorand blockchain.**  
 Automate DeFi strategies, tokenize real-world assets, and monitor on-chain activity — all in one futuristic dashboard.
 
-[🚀 Live Demo](#) · [📖 Docs](#setup) · [🛡️ Admin Portal](#admin-portal) · [🤝 Contributing](CONTRIBUTING.md)
+[🚀 Live Demo](https://nexus-finance-app.vercel.app) · [🛡️ Admin Portal](https://nexus-finance-admin.vercel.app) · [📖 Docs](#-setup) · [🤝 Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -105,7 +106,7 @@ nexus-finance/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/nexus-finance.git
+git clone https://github.com/Nexus0538/nexus-finance.git
 cd nexus-finance
 ```
 
@@ -171,6 +172,37 @@ The following tables are required:
 | `investments` | User investment positions |
 | `price_alerts` | Custom price alert rules |
 | `user_files` | KYC docs and invoice references |
+
+---
+
+## ▲ Deploying to Vercel
+
+The project deploys as **two separate Vercel projects** — one for the main app and one for the admin portal.
+
+### Frontend App
+
+1. Go to [vercel.com/new](https://vercel.com/new) → Import `Nexus0538/nexus-finance`
+2. Set **Root Directory** → `frontend`
+3. Framework: **Vite** (auto-detected)
+4. Add environment variables:
+   ```
+   VITE_SUPABASE_URL=https://your-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   ```
+5. Click **Deploy** ✅
+
+### Admin Portal
+
+1. Go to [vercel.com/new](https://vercel.com/new) → Import same repo again
+2. Set **Root Directory** → `admin`
+3. Framework: **Vite** (auto-detected)
+4. Add the same environment variables as above
+5. Click **Deploy** ✅
+
+> Both apps include a `vercel.json` that handles SPA client-side routing automatically.
+
+> ⚠️ Set your Supabase **Site URL** and **Redirect URLs** to your Vercel domains in:  
+> Supabase Dashboard → Authentication → URL Configuration
 
 ---
 
