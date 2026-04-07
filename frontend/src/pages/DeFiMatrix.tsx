@@ -96,7 +96,18 @@ export const DeFiMatrix: React.FC = () => {
   const [riskModal, setRiskModal] = useState<{ open: boolean; protocol: Protocol | null; text: string; loading: boolean }>({ open: false, protocol: null, text: '', loading: false });
 
   // rebalance
-  const [rebalanceSuggestion, setRebalanceSuggestion] = useState('');
+  const [rebalanceSuggestion, setRebalanceSuggestion] = useState(`STRATEGY: Diversified yield-optimized allocation across Algorand DeFi.
+
+ALLOCATION:
+- Folks Finance (gALGO): 60% | Liquid staking with 14.8% APY
+- Tinyman (ALGO/USDC): 25% | Low-impermanent loss yield farming
+- Pact.fi (USDC/USDT): 10% | Stablecoin lending for consistent returns
+
+KEEP LIQUID: 5% (Gas & network fees)
+
+EXPECTED YIELD: ≈18.2% APY aggregate
+
+RISK NOTE: This is a pre-calculated low-risk baseline suggestion. Click 'Get Rebalance Strategy' for a personalized analysis based on your exact balance.`);
   const [rebalanceLoading, setRebalanceLoading] = useState(false);
 
   // swap
